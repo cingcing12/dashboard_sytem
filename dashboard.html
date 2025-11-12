@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ផ្ទាំងគ្រប់គ្រង - គ្រប់គ្រងចំណាយកម្រិតខ្ពស់</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script> 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Khmer+OS+Battambang:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Khmer OS Battambang', sans-serif;
+            min-height: 100vh;
+        }
+
+        /* Simple hide scrollbar */
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* General Modal Styling */
+        .modal { 
+            display: none; 
+            position: fixed; 
+            inset: 0; 
+            background: rgba(0, 0, 0, 0.65); 
+            justify-content: center; 
+            align-items: center; 
+            z-index: 999; 
+            backdrop-filter: blur(3px);
+            transition: opacity 0.3s ease;
+        }
+        .modal.active { display:flex; }
+        
+        /* Custom status badges (Slightly improved colors) */
+        .badge-expense { background-color: #fee2e2; color: #b91c1c; }
+        .badge-income { background-color: #dcfce7; color: #15803d; }
+        .badge-deleted { background-color: #f3f4f6; color: #6b7280; }
+
+        /* Modern shadow for cards */
+        .card-shadow { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
+
+        /* Dropdown */
+        .dropdown { position: relative; }
+        .dropdown-menu { display: none; position: absolute; right: 0; top: 100%; min-width: 200px; background-color: white; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); z-index: 100; margin-top: 10px; }
+        .dropdown-menu.active { display: block; }
+        
+        /* List Item Hover Effect */
+        .expense-item {
+            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+            border: 1px solid #e5e7eb; /* Added subtle border */
+        }
+        .expense-item:hover {
+            cursor: pointer;
+            transform: translateY(-3px);
+            box-shadow: 0 12px 20px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* FAB forced visibility on mobile via CSS */
+        #fab-add-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 50;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        }
+        @media(max-width:1023px){ /* Smaller than lg */
+            #fab-add-btn{
+                display: inline-flex !important;
+            }
+        }
+        
+        /* Mobile Modal Fix (Ensures the modal form is 100% on small screens) */
+        #mobileFormModal .modal-content-mobile {
+            width: 95%; /* Limit width slightly on small screens */
+            max-width: 480px; /* Max-width for mobile modal */
+            margin: 20px;
+        }
+
+        /* Improved Form Visibility Logic: Hide/Show based on screen size */
+        #main-expense-form-container {
+            display: none;
+        }
+        @media (min-width: 1024px) { 
+            #main-expense-form-container {
+                display: block !important;
+            }
+        }
+        /* Hide the mobile modal on desktop */
+        @media (min-width: 1024px) {
+            #mobileFormModal {
+                display: none !important;
+            }
+        }
+        /* New PDF styles to prevent cutoff issues when generating the PDF */
+        @media print {
+            body {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                background-color: #ffffff !important;
+            }
+            .card-shadow { box-shadow: none !important; border: 1px solid #ccc; }
+            .hide-on-print { display: none !important; }
+            /* Force list items to not break across pages badly */
+            .expense-item { page-break-inside: avoid; }
+            
+            /* Hide unnecessary elements for printing */
+            header, #fab-add-btn, .item-actions, #main-expense-form-container { display: none !important; }
+        }
+        
+        /* Custom Confirmation Modal Styling */
+        .confirm-modal-content {
+            animation: fadeInScale 0.3s ease-out;
+        }
+        @keyframes fadeInScale {
+            from { opacity: 0; transform: scale(0.9) translateY(-20px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    
+    <div id="toast-container" class="fixed top-4 right-4 z-[1000] space-y-3 pointer-events-none">
+        </div>
+    
+    <div id="customConfirmModal" class="modal">
+        <div class="confirm-modal-content bg-white rounded-2xl p-8 w-full max-w-sm relative shadow-2xl">
+            <div id="confirm-icon-box" class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center text-white bg-red-100">
+                 <i data-lucide="alert-triangle" class="w-6 h-6 text-red-600"></i>
+            </div>
+            <h3 id="confirm-title" class="text-xl font-bold text-gray-800 mb-2 text-center">តើអ្នកប្រាកដទេ?</h3>
+            <p id="confirm-message" class="text-gray-600 mb-6 text-center text-sm">ប្រតិបត្តិការនេះមិនអាចត្រលប់ក្រោយបានទេ។</p>
+            
+            <div class="flex justify-center space-x-4">
+                <button type="button" onclick="resolveCustomConfirm(false)" class="px-6 py-3 bg-gray-300 text-gray-700 font-semibold rounded-xl hover:bg-gray-400 transition">បោះបង់</button>
+                <button type="button" id="confirm-action-btn" onclick="resolveCustomConfirm(true)" class="px-6 py-3 bg-red-600 text-white font-semibold rounded-xl hover:bg-red-700 transition">យល់ព្រម</button>
+            </div>
+        </div>
+    </div>
+    
+    <header class="bg-white shadow-md p-4 sticky top-0 z-50 border-b border-gray-200">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <h1 class="text-xl sm:text-3xl font-bold text-blue-700 flex items-center">
+                <i data-lucide="wallet" class="w-6 h-6 sm:w-7 sm:h-7 mr-2 sm:mr-3 text-indigo-500"></i>
+                ប្រព័ន្ធគ្រប់គ្រងចំណាយ
+            </h1>
+            
+            <div class="dropdown">
+                <button onclick="toggleDropdown(event)" class="w-10 h-10 bg-indigo-500 rounded-full flex items-center justify-center text-white font-semibold hover:bg-indigo-600 transition duration-150 relative ring-2 ring-indigo-300 ring-offset-2">
+                    <i data-lucide="user" class="w-6 h-6"></i>
+                </button>
+                <div id="profile-dropdown-menu" class="dropdown-menu">
+                    <div class="p-3 border-b text-center bg-gray-50">
+                        <p class="font-bold text-gray-800 truncate" id="dropdown-email">Loading...</p>
+                        <span class="text-sm text-indigo-500" id="dropdown-role">Loading...</span>
+                    </div>
+                    
+                    <a href="user.html" id="user-management-link" class="hidden items-center p-3 hover:bg-indigo-50 transition text-purple-700">
+                        <i data-lucide="users" class="w-4 h-4 mr-2"></i> គ្រប់គ្រងអ្នកប្រើ
+                    </a>
+                    
+                    <a href="#" onclick="openProfileModal(); return false;" class="flex items-center p-3 hover:bg-gray-50 transition text-gray-700">
+                        <i data-lucide="user-cog" class="w-4 h-4 mr-2"></i> ព័ត៌មានគណនី
+                    </a>
+                    <a href="#" onclick="customLogout(); return false;" class="flex items-center p-3 hover:bg-red-50 transition text-red-600 border-t mt-1">
+                        <i data-lucide="log-out" class="w-4 h-4 mr-2"></i> ចាកចេញ
+                    </a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-4 md:p-8">
+        
+        <section class="mb-8">
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+                <div class="bg-white p-4 sm:p-6 rounded-xl card-shadow border-l-4 border-indigo-500 hover:shadow-lg transition">
+                    <p class="text-sm text-gray-500 flex items-center mb-1"><i data-lucide="banknote" class="w-4 h-4 mr-2 text-indigo-500"></i> សមតុល្យសរុប</p>
+                    <p class="text-2xl sm:text-4xl font-extrabold text-indigo-600 truncate" id="total-balance-summary">-- ៛</p>
+                </div>
+                <div class="bg-white p-4 sm:p-6 rounded-xl card-shadow border-l-4 border-green-500 hover:shadow-lg transition">
+                    <p class="text-sm text-gray-500 flex items-center mb-1"><i data-lucide="trending-up" class="w-4 h-4 mr-2 text-green-500"></i> ចំណូលសរុប</p>
+                    <p class="text-2xl sm:text-4xl font-extrabold text-green-600 truncate" id="total-income-summary">-- ៛</p>
+                </div>
+                <div class="bg-white p-4 sm:p-6 rounded-xl card-shadow border-l-4 border-red-500 hover:shadow-lg transition">
+                    <p class="text-sm text-gray-500 flex items-center mb-1"><i data-lucide="trending-down" class="w-4 h-4 mr-2 text-red-500"></i> ចំណាយសរុប</p>
+                    <p class="text-2xl sm:text-4xl font-extrabold text-red-600 truncate" id="total-expense-summary">-- ៛</p>
+                </div>
+                <div class="bg-white p-4 sm:p-6 rounded-xl card-shadow border-l-4 border-gray-400 hover:shadow-lg transition">
+                    <p class="text-sm text-gray-500 flex items-center mb-1"><i data-lucide="hash" class="w-4 h-4 mr-2 text-gray-500"></i> ចំនួនប្រតិបត្តិការ</p>
+                    <p class="text-2xl sm:text-4xl font-extrabold text-gray-700" id="total-count-summary">-- កំណត់ត្រា</p>
+                </div>
+            </div>
+        </section>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            
+            <section id="main-expense-form-container" class="lg:col-span-1 bg-white p-6 rounded-2xl card-shadow h-fit lg:sticky lg:top-24 border border-gray-100">
+                <h2 class="text-2xl font-bold mb-6 text-indigo-600 border-b pb-3" id="main-form-title">➕ បញ្ចូលកំណត់ត្រាថ្មី</h2>
+                <form id="expense-form" class="space-y-4">
+                    </form>
+            </section>
+            
+            <section id="data-view-section" class="lg:col-span-3 bg-white p-4 sm:p-6 rounded-2xl card-shadow border border-gray-100">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 border-b pb-2">
+                    <h2 class="text-xl sm:text-2xl font-bold text-gray-700 mb-2 sm:mb-0">បញ្ជីប្រតិបត្តិការ & របាយការណ៍ (ចំណាយតែប៉ុណ្ណោះ)</h2>
+                    <button onclick="switchView('trash')" id="trash-btn" class="bg-gray-100 text-gray-600 hover:bg-gray-200 px-4 py-2 rounded-lg transition flex items-center font-semibold text-sm shadow-sm">
+                        <i data-lucide="trash-2" class="w-4 h-4 mr-2"></i> កំណត់ត្រាដែលបានលុប
+                    </button>
+                </div>
+
+                <div class="mb-6 p-4 border rounded-xl bg-gray-50">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                        <div class="sm:col-span-1">
+                            <label for="report-type" class="block text-xs font-medium text-gray-500 mb-1">របាយការណ៍សរុបតាម:</label>
+                            <select id="report-type" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500" onchange="filterRecords()">
+                                <option value="all">ទាំងអស់</option>
+                                <option value="daily">ប្រចាំថ្ងៃ</option>
+                                <option value="monthly">ប្រចាំខែ</option>
+                                <option value="yearly">ប្រចាំឆ្នាំ</option>
+                                <option value="category">តាមប្រភេទ</option>
+                            </select>
+                        </div>
+                        <div class="sm:col-span-2">
+                             <label for="search-input" class="block text-xs font-medium text-gray-500 mb-1">ស្វែងរក (ប្រភេទ/ពិពណ៌នា):</label>
+                             <input type="text" id="search-input" oninput="filterRecords()" placeholder="ឧ. អាហារ, ប្រាក់ខែ, បង់ថ្លៃផ្ទះ" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                        </div>
+                    </div>
+                    
+                    <div class="flex flex-wrap justify-end gap-3 border-t pt-3 mt-3">
+                        <button onclick="exportData('pdf')" class="bg-red-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-red-700 transition text-sm font-semibold shadow-md">
+                            <i data-lucide="file-text" class="w-4 h-4 mr-1"></i> ទាញយក PDF
+                        </button>
+                        <button onclick="exportData('excel')" class="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-green-700 transition text-sm font-semibold shadow-md">
+                            <i data-lucide="file-spreadsheet" class="w-4 h-4 mr-1"></i> ទាញយក Excel
+                        </button>
+                    </div>
+                </div>
+
+                <div id="expense-list" class="space-y-3 max-h-[65vh] overflow-y-auto pr-2 hide-scrollbar">
+                    <p class="text-center text-gray-500 py-10">កំពុងទាញទិន្នន័យ...</p>
+                </div>
+            </section>
+        </div>
+    </main>
+    
+    <button id="fab-add-btn" onclick="openFormModal()" class="bg-indigo-600 text-white transition hover:bg-indigo-700 ring-4 ring-indigo-300 ring-offset-2">
+        <i data-lucide="plus" class="w-8 h-8"></i>
+    </button>
+    
+    <div id="profileModal" class="modal">
+        <div class="bg-white rounded-2xl p-8 w-full max-w-md relative shadow-2xl">
+            <h3 class="text-2xl font-bold text-blue-700 mb-6 border-b pb-2">ព័ត៌មានគណនី</h3>
+            
+            <div class="space-y-4">
+                <div class="p-3 bg-gray-50 rounded-lg border">
+                    <label class="block text-sm font-medium text-gray-500">អ៊ីម៉ែល</label>
+                    <p class="font-semibold text-gray-800" id="modal-profile-email">N/A</p>
+                </div>
+                <div class="p-3 bg-gray-50 rounded-lg border">
+                    <label class="block text-sm font-medium text-gray-500">តួនាទី</label>
+                    <p class="font-semibold text-indigo-700" id="modal-profile-role">N/A</p>
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-3 pt-6 border-t mt-6">
+                <button type="button" onclick="closeProfileModal()" class="px-6 py-3 bg-gray-300 text-gray-700 font-semibold rounded-xl hover:bg-gray-400 transition">បិទ</button>
+                <button type="button" onclick="customLogout()" class="px-6 py-3 bg-red-600 text-white font-semibold rounded-xl hover:bg-red-700 transition">ចាកចេញ</button>
+            </div>
+            
+            <button onclick="closeProfileModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-700 p-2 rounded-full hover:bg-gray-100 transition">
+                <i data-lucide="x" class="w-6 h-6"></i>
+            </button>
+        </div>
+    </div>
+    
+    <div id="detailModal" class="modal">
+        <div class="bg-white rounded-2xl p-8 w-full max-w-lg relative shadow-2xl transform transition-all">
+            <h3 class="text-2xl font-bold text-blue-700 mb-6 border-b pb-2 flex items-center">
+                <i data-lucide="clipboard-list" class="w-6 h-6 mr-2 text-gray-500"></i> ព័ត៌មានលម្អិតកំណត់ត្រា
+            </h3>
+            
+            <div class="space-y-4 text-gray-700">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="p-3 bg-gray-50 rounded-lg border">
+                        <label class="block text-sm font-medium text-gray-500 flex items-center"><i data-lucide="calendar" class="w-4 h-4 mr-1"></i> កាលបរិច្ឆេទ</label>
+                        <p class="font-semibold text-base" id="detail-date">N/A</p>
+                    </div>
+                    <div class="p-3 bg-gray-50 rounded-lg border">
+                        <label class="block text-sm font-medium text-gray-500 flex items-center"><i data-lucide="tag" class="w-4 h-4 mr-1"></i> ប្រភេទប្រតិបត្តិការ</label>
+                        <p class="font-semibold text-base" id="detail-type">N/A</p>
+                    </div>
+                </div>
+                
+                <div class="p-4 bg-white rounded-xl border border-gray-200 shadow-inner">
+                    <label class="block text-sm font-medium text-gray-500">ចំនួនប្រាក់</label>
+                    <p class="text-3xl font-extrabold mt-1" id="detail-amount">-- ៛</p>
+                </div>
+                
+                <div class="p-3 bg-gray-50 rounded-lg border">
+                    <label class="block text-sm font-medium text-gray-500 flex items-center"><i data-lucide="folder" class="w-4 h-4 mr-1"></i> ប្រភេទចំណាយ (Category)</label>
+                    <p class="font-semibold text-base" id="detail-category">N/A</p>
+                </div>
+                
+                <div class="p-3 bg-gray-50 rounded-lg border">
+                    <label class="block text-sm font-medium text-gray-500 flex items-center"><i data-lucide="align-left" class="w-4 h-4 mr-1"></i> ពិពណ៌នាលម្អិត</label>
+                    <p id="detail-desc" class="whitespace-pre-wrap text-sm">N/A</p>
+                </div>
+                
+                <div class="text-xs text-gray-500 pt-3 flex justify-between">
+                    <p>កែប្រែចុងក្រោយ: <span id="detail-modified">N/A</span></p>
+                    <p>ស្ថានភាព: <span id="detail-status" class="font-semibold">N/A</span></p>
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-3 pt-6 border-t mt-6">
+                <button type="button" onclick="editExpense(activeDetailRecord.ID, true);" class="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition flex items-center shadow-md">
+                    <i data-lucide="pencil" class="w-5 h-5 mr-2"></i> កែប្រែ
+                </button>
+                <button type="button" onclick="closeDetailModal()" class="px-6 py-3 bg-gray-300 text-gray-700 font-semibold rounded-xl hover:bg-gray-400 transition">បិទ</button>
+            </div>
+            
+            <button onclick="closeDetailModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-700 p-2 rounded-full hover:bg-gray-100 transition">
+                <i data-lucide="x" class="w-6 h-6"></i>
+            </button>
+        </div>
+    </div>
+    
+    <div id="mobileFormModal" class="modal">
+        <div class="modal-content-mobile bg-white rounded-2xl p-6 w-full relative shadow-2xl">
+            <h3 class="text-2xl font-bold text-indigo-600 mb-6 border-b pb-2" id="mobile-form-title">➕ បញ្ចូលកំណត់ត្រាថ្មី</h3>
+            <form id="mobile-expense-form" class="space-y-4">
+            </form>
+            <button onclick="closeFormModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-700 p-2 rounded-full hover:bg-gray-100 transition">
+                <i data-lucide="x" class="w-6 h-6"></i>
+            </button>
+        </div>
+    </div>
+    
+    <div id="form-template" style="display: none;">
+        <input type="hidden" id="record-id" value="">
+        
+        <label for="date" class="block text-sm font-medium text-gray-700">កាលបរិច្ឆេទ</label>
+        <input id="date" type="date" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-600 focus:border-indigo-600 transition" required>
+        
+        <label for="amount" class="block text-sm font-medium text-gray-700">ចំនួនប្រាក់ (៛)</label>
+        <input id="amount" type="number" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-600 focus:border-indigo-600 transition" placeholder="ឧ. 150000" required>
+        
+        <label for="type" class="block text-sm font-medium text-gray-700">ប្រភេទប្រតិបត្តិការ</label>
+        <select id="type" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-600 focus:border-indigo-600 transition" required disabled>
+            <option value="Expense" selected>ចំណាយ 📉</option>
+        </select>
+        
+        <label for="category" class="block text-sm font-medium text-gray-700">ប្រភេទចំណាយ (Category)</label>
+        <input id="category" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-600 focus:border-indigo-600 transition" placeholder="ឧ. អាហារ, បង់ថ្លៃផ្ទះ, ដឹកជញ្ជូន" required>
+        
+        <label for="desc" class="block text-sm font-medium text-gray-700">ពិពណ៌នាលម្អិត</label>
+        <textarea id="desc" rows="2" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-600 focus:border-indigo-600 transition" placeholder="ចំណាយលើអ្វីខ្លះ..."></textarea>
+        
+        <button type="submit" id="submit-btn" class="w-full bg-green-600 text-white p-3 rounded-lg font-semibold hover:bg-green-700 transition duration-150 flex items-center justify-center shadow-lg mt-6">
+            <i data-lucide="plus" class="w-5 h-5 mr-1"></i> បន្ថែមកំណត់ត្រា
+        </button>
+        
+        <button type="button" id="cancel-btn" onclick="resetForm()" class="w-full bg-gray-300 text-gray-700 p-3 rounded-lg font-semibold hover:bg-gray-400 transition duration-150 hidden mt-2">
+            <i data-lucide="x" class="w-5 h-5 mr-1"></i> បោះបង់ការកែប្រែ
+        </button>
+    </div>
+
+
+    <script src="config.js"></script>
+    <script>
+        // --- GLOBAL STATE ---
+        const user = JSON.parse(localStorage.getItem("user"));
+        let allExpenses = [];
+        let currentView = 'active'; // 'active' or 'trash'
+        let editingID = null;
+        let activeDetailRecord = null;
+        
+        // Use a single form element reference for dynamic switching
+        let activeFormElement = null; 
+        
+        // Promise Resolver for Custom Confirmation Modal
+        let customConfirmResolver; 
+        
+        // --- NEW: TOAST NOTIFICATION FUNCTION ---
+        /**
+         * Shows a non-blocking toast notification.
+         * @param {string} message - The message to display.
+         * @param {'success'|'error'|'info'|'warning'} type - The type of toast.
+         * @param {number} duration - Duration in milliseconds (default 4000).
+         */
+        function showToast(message, type = 'info', duration = 4000) {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+
+            let bgColor, icon, iconColor;
+
+            switch (type) {
+                case 'success':
+                    bgColor = 'bg-green-600';
+                    icon = 'check-circle';
+                    iconColor = 'text-green-200';
+                    break;
+                case 'error':
+                    bgColor = 'bg-red-600';
+                    icon = 'x-circle';
+                    iconColor = 'text-red-200';
+                    break;
+                case 'warning':
+                    bgColor = 'bg-yellow-500';
+                    icon = 'alert-triangle';
+                    iconColor = 'text-yellow-200';
+                    break;
+                case 'info':
+                default:
+                    bgColor = 'bg-blue-600';
+                    icon = 'info';
+                    iconColor = 'text-blue-200';
+                    break;
+            }
+
+            const toast = document.createElement('div');
+            toast.className = `p-4 max-w-sm w-full rounded-lg shadow-xl text-white flex items-center space-x-3 transform transition-all ease-in-out duration-300 opacity-0 translate-x-full pointer-events-auto ${bgColor}`;
+            toast.style.minWidth = '250px'; 
+            toast.innerHTML = `
+                <i data-lucide="${icon}" class="w-6 h-6 ${iconColor} flex-shrink-0"></i>
+                <p class="font-medium text-sm flex-1">${message}</p>
+                <button onclick="this.closest('div').remove()" class="p-1 -mr-1 rounded-full hover:bg-white/20 transition-all flex-shrink-0">
+                    <i data-lucide="x" class="w-4 h-4 text-white"></i>
+                </button>
+            `;
+
+            container.appendChild(toast);
+            lucide.createIcons(); 
+
+            // Animate in
+            setTimeout(() => {
+                toast.classList.remove('opacity-0', 'translate-x-full');
+                toast.classList.add('opacity-100', 'translate-x-0');
+            }, 50); 
+
+            // Animate out and remove
+            setTimeout(() => {
+                toast.classList.remove('opacity-100', 'translate-x-0');
+                toast.classList.add('opacity-0', 'translate-x-full');
+                setTimeout(() => toast.remove(), 300); // Wait for the transition to finish
+            }, duration);
+        }
+
+        // --- NEW: CUSTOM CONFIRMATION MODAL FUNCTION ---
+        /**
+         * Displays a custom confirmation modal that resolves a promise.
+         * @param {string} title - Modal title (e.g., "Confirm Deletion").
+         * @param {string} message - The question/warning message.
+         * @param {string} actionText - The text for the confirm button (e.g., "Delete").
+         * @param {string} type - 'delete', 'restore', 'logout'.
+         * @returns {Promise<boolean>} - Resolves true for confirmation, false otherwise.
+         */
+        function customConfirm(title, message, actionText, type = 'delete') {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('customConfirmModal');
+                const titleEl = document.getElementById('confirm-title');
+                const messageEl = document.getElementById('confirm-message');
+                const actionBtn = document.getElementById('confirm-action-btn');
+                const iconBox = document.getElementById('confirm-icon-box');
+
+                // Clear previous classes
+                actionBtn.classList.remove('bg-red-600', 'hover:bg-red-700', 'bg-green-600', 'hover:bg-green-700');
+                iconBox.className = 'w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center';
+                
+                let iconHtml = '';
+
+                if (type === 'delete') {
+                    actionBtn.classList.add('bg-red-600', 'hover:bg-red-700');
+                    iconBox.classList.add('bg-red-100');
+                    iconHtml = '<i data-lucide="trash-2" class="w-6 h-6 text-red-600"></i>';
+                } else if (type === 'permanent_delete') {
+                    actionBtn.classList.add('bg-red-800', 'hover:bg-red-900');
+                    iconBox.classList.add('bg-red-200');
+                    iconHtml = '<i data-lucide="skull" class="w-6 h-6 text-red-800"></i>';
+                } else if (type === 'restore') {
+                    actionBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+                    iconBox.classList.add('bg-green-100');
+                    iconHtml = '<i data-lucide="rotate-ccw" class="w-6 h-6 text-green-600"></i>';
+                } else if (type === 'logout') {
+                    actionBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+                    iconBox.classList.add('bg-indigo-100');
+                    iconHtml = '<i data-lucide="log-out" class="w-6 h-6 text-indigo-600"></i>';
+                } else {
+                    actionBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                    iconBox.classList.add('bg-blue-100');
+                    iconHtml = '<i data-lucide="help-circle" class="w-6 h-6 text-blue-600"></i>';
+                }
+
+                titleEl.textContent = title;
+                messageEl.textContent = message;
+                actionBtn.textContent = actionText;
+                iconBox.innerHTML = iconHtml;
+                
+                lucide.createIcons();
+
+                customConfirmResolver = resolve;
+                modal.classList.add('active');
+            });
+        }
+        
+        function resolveCustomConfirm(result) {
+            document.getElementById('customConfirmModal').classList.remove('active');
+            if (customConfirmResolver) {
+                customConfirmResolver(result);
+                customConfirmResolver = null;
+            }
+        }
+        
+        // New logout wrapper using customConfirm
+        async function customLogout() {
+            const confirmed = await customConfirm(
+                "ចាកចេញពីគណនី",
+                "តើអ្នកប្រាកដថាចង់ចាកចេញពីប្រព័ន្ធគ្រប់គ្រងចំណាយមែនទេ?",
+                "ចាកចេញ",
+                "logout"
+            );
+            
+            if (confirmed) {
+                localStorage.removeItem("user");
+                localStorage.clear();
+                window.location.href = "index.html";
+            }
+        }
+
+        // --- INIT & AUTH ---
+        if (!user) {
+            showToast("⚠️ សូមចូលប្រព័ន្ធជាមុនសិន។", 'warning');
+            window.location.href = "index.html";
+        } else {
+            document.getElementById("dropdown-email").textContent = user.Email || 'N/A';
+            document.getElementById("dropdown-role").textContent = user.Role || 'User';
+            
+            if (user.Role === 'Owner') {
+                document.getElementById('user-management-link').classList.remove('hidden');
+                document.getElementById('user-management-link').classList.add('flex');
+            }
+        }
+        
+        function logout() { customLogout(); } // Redirect old logout to customLogout
+
+        // --- PROFILE/DROPDOWN/MODALS ---
+        function toggleDropdown(event) {
+            const menu = document.getElementById('profile-dropdown-menu');
+            document.querySelectorAll('.dropdown-menu.active').forEach(m => {
+                if (m !== menu) m.classList.remove('active');
+            });
+            menu.classList.toggle('active');
+            event.stopPropagation();
+        }
+
+        document.addEventListener('click', function(event) {
+            const dropdown = document.getElementById('profile-dropdown-menu');
+            if (dropdown.classList.contains('active') && !event.target.closest('.dropdown')) {
+                dropdown.classList.remove('active');
+            }
+        });
+        
+        function closeDropdown() { document.getElementById('profile-dropdown-menu').classList.remove('active'); }
+        function openProfileModal() {
+            closeDropdown();
+            document.getElementById('modal-profile-email').textContent = user.Email;
+            document.getElementById('modal-profile-role').textContent = user.Role;
+            document.getElementById('profileModal').classList.add('active');
+        }
+        function closeProfileModal() { document.getElementById('profileModal').classList.remove('active'); }
+        
+        // --- DETAIL MODAL (Minor update to reflect Expense Only) ---
+        function openDetailModal(record) {
+            activeDetailRecord = record;
+
+            // Populate detail fields
+            document.getElementById('detail-date').textContent = record.Date;
+            // 🛑 Hardcoded to 'ចំណាយ' as per new requirement
+            document.getElementById('detail-type').textContent = 'ចំណាយ 📉'; 
+            document.getElementById('detail-amount').textContent = formatCurrency(parseFloat(record.Amount));
+            // 🛑 Hardcoded class for Expense
+            document.getElementById('detail-amount').className = 'text-3xl font-extrabold mt-1 text-red-600'; 
+            document.getElementById('detail-category').textContent = record.Category;
+            document.getElementById('detail-desc').textContent = record.Description || 'គ្មានពិពណ៌នា';
+            document.getElementById('detail-modified').textContent = record.ModifiedDate ? new Date(record.ModifiedDate).toLocaleString('km-KH') : 'N/A';
+            document.getElementById('detail-status').textContent = record.Status === 'Deleted' ? 'លុបបណ្ដោះអាសន្ន' : 'សកម្ម';
+            
+            document.getElementById('detailModal').classList.add('active');
+            lucide.createIcons();
+        }
+
+        function closeDetailModal() {
+            document.getElementById('detailModal').classList.remove('active');
+            activeDetailRecord = null;
+        }
+        
+        // --- MOBILE/DESKTOP FORM MANAGEMENT (No functional changes) ---
+        function setupForms() {
+            const formTemplate = document.getElementById('form-template').innerHTML;
+            document.getElementById('expense-form').innerHTML = formTemplate;
+            document.getElementById('expense-form').addEventListener('submit', (e) => handleFormSubmission(e, 'desktop'));
+            document.getElementById('mobile-expense-form').innerHTML = formTemplate;
+            document.getElementById('mobile-expense-form').addEventListener('submit', (e) => handleFormSubmission(e, 'mobile'));
+        }
+
+        function openFormModal() {
+             resetForm();
+             document.getElementById('mobile-form-title').textContent = "➕ បញ្ចូលកំណត់ត្រាថ្មី";
+             document.getElementById('mobileFormModal').classList.add('active');
+             activeFormElement = document.getElementById('mobile-expense-form');
+             if(activeFormElement) activeFormElement.reset();
+             lucide.createIcons();
+        }
+
+        function closeFormModal() {
+             resetForm();
+             document.getElementById('mobileFormModal').classList.remove('active');
+             activeFormElement = null;
+        }
+
+        function populateForm(formElement, record) {
+            formElement.querySelector("#date").value = record.Date;
+            formElement.querySelector("#amount").value = record.Amount;
+            // formElement.querySelector("#type").value = record.Type; // REMOVED: Type is now fixed to Expense
+            formElement.querySelector("#category").value = record.Category;
+            formElement.querySelector("#desc").value = record.Description;
+
+            const isEditing = record !== null;
+            const submitBtn = formElement.querySelector('#submit-btn');
+            const cancelBtn = formElement.querySelector('#cancel-btn');
+            
+            if (isEditing) {
+                submitBtn.innerHTML = '<i data-lucide="save" class="w-5 h-5 mr-1"></i> រក្សាទុកការកែប្រែ';
+                submitBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
+                submitBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+                cancelBtn.classList.remove('hidden');
+                
+                document.getElementById('main-form-title').textContent = "📝 កែប្រែកំណត់ត្រា";
+                const mobileTitle = document.getElementById('mobile-form-title');
+                if(mobileTitle) mobileTitle.textContent = "📝 កែប្រែកំណត់ត្រា";
+            } else {
+                resetFormUI(formElement);
+            }
+            lucide.createIcons();
+        }
+        
+        function resetFormUI(formElement) {
+             const submitBtn = formElement.querySelector('#submit-btn');
+             const cancelBtn = formElement.querySelector('#cancel-btn');
+             
+             submitBtn.innerHTML = '<i data-lucide="plus" class="w-5 h-5 mr-1"></i> បន្ថែមកំណត់ត្រា';
+             submitBtn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
+             submitBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+             cancelBtn.classList.add('hidden');
+             
+             document.getElementById('main-form-title').textContent = "➕ បញ្ចូលកំណត់ត្រាថ្មី";
+             const mobileTitle = document.getElementById('mobile-form-title');
+             if(mobileTitle) mobileTitle.textContent = "➕ បញ្ចូលកំណត់ត្រាថ្មី";
+        }
+
+        function resetForm() {
+            editingID = null;
+            const desktopForm = document.getElementById('expense-form');
+            const mobileForm = document.getElementById('mobile-expense-form');
+            desktopForm.reset();
+            mobileForm.reset();
+            resetFormUI(desktopForm);
+            resetFormUI(mobileForm);
+            activeFormElement = null; 
+            lucide.createIcons();
+        }
+        
+        function handleCardClick(record) {
+             const isMobile = window.innerWidth < 1024;
+             if (isMobile) {
+                 editExpense(record.ID, false); 
+             } else {
+                 openDetailModal(record); 
+             }
+        }
+        
+        async function editExpense(id, scrollToForm=true) {
+            const record = allExpenses.find(x => x.ID.toString() === id.toString());
+            if (!record) { 
+                showToast("❌ មិនអាចរកកំណត់ត្រាបានទេ។", 'error'); 
+                return; 
+            }
+            
+            closeDetailModal(); 
+
+            editingID = id;
+            
+            const isMobile = window.innerWidth < 1024;
+            
+            if (isMobile) {
+                openFormModal(); 
+                activeFormElement = document.getElementById('mobile-expense-form');
+            } else {
+                activeFormElement = document.getElementById('expense-form');
+            }
+            
+            if(activeFormElement) {
+                populateForm(activeFormElement, record);
+            }
+            
+            if(scrollToForm && !isMobile) {
+                 document.getElementById("main-expense-form-container").scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        // --- UTILS ---
+        function formatCurrency(amount) {
+            const num = parseFloat(amount) || 0;
+            return `${num.toLocaleString('km-KH')} ៛`;
+        }
+
+        // --- SUMMARY & FILTERING LOGIC ---
+        let filteredDataForReport = []; 
+
+        function calculateSummary(data) {
+            // 🛑 Only count/sum expenses, as income transactions should be discarded in this view (or were never entered).
+            const activeExpenses = data.filter(x => x.Status === "Active"); 
+            let totalIncome = 0; // Should be 0 in an Expense Only App, but kept for legacy views
+            let totalExpense = 0;
+
+            activeExpenses.forEach(x => {
+                const amount = parseFloat(x.Amount) || 0;
+                // If it was somehow labeled 'Income' previously, we ignore it for an expense-only summary
+                if (x.Type === 'Expense') { 
+                    totalExpense += amount;
+                }
+            });
+
+            // The balance should show negative total expense (or zero if no income is allowed)
+            const totalBalance = -totalExpense;
+
+            document.getElementById('total-balance-summary').textContent = formatCurrency(totalBalance);
+            document.getElementById('total-income-summary').textContent = formatCurrency(totalIncome); // Will be 0
+            document.getElementById('total-expense-summary').textContent = formatCurrency(totalExpense);
+            document.getElementById('total-count-summary').textContent = `${activeExpenses.length} កំណត់ត្រា`;
+        }
+        
+        function filterRecords() {
+            const reportType = document.getElementById('report-type').value;
+            const searchTerm = document.getElementById('search-input').value.toLowerCase();
+            
+            // Only filter records that are 'Expense' OR are 'Deleted' (to allow trash view)
+            const expenseOnlyData = allExpenses.filter(x => x.Type === "Expense" || x.Status === "Deleted");
+
+            const dataToFilter = currentView === 'active' ? 
+                                 expenseOnlyData.filter(x => x.Status === "Active") : 
+                                 expenseOnlyData.filter(x => x.Status === "Deleted");
+                                 
+            let filtered = dataToFilter;
+
+            const today = new Date();
+            const currentYear = today.getFullYear();
+            const currentMonth = today.getMonth();
+
+            filtered = filtered.filter(x => {
+                const recordDate = new Date(x.Date);
+                const category = x.Category.toLowerCase();
+                const description = x.Description.toLowerCase();
+                
+                let matchesReport = true;
+                let matchesSearch = true;
+
+                switch (reportType) {
+                    case 'daily':
+                        matchesReport = recordDate.toDateString() === today.toDateString();
+                        break;
+                    case 'monthly':
+                        matchesReport = recordDate.getMonth() === currentMonth && recordDate.getFullYear() === currentYear;
+                        break;
+                    case 'yearly':
+                        matchesReport = recordDate.getFullYear() === currentYear;
+                        break;
+                    case 'category':
+                        matchesReport = category.includes(searchTerm);
+                        matchesSearch = true; 
+                        break;
+                    case 'all':
+                    default:
+                        matchesReport = true;
+                        break;
+                }
+                
+                if (reportType !== 'category' && searchTerm) {
+                    matchesSearch = category.includes(searchTerm) || description.includes(searchTerm);
+                }
+                
+                return matchesReport && matchesSearch;
+            }).sort((a, b) => new Date(b.Date) - new Date(a.Date)); 
+
+            filteredDataForReport = filtered;
+            renderExpenseList(filtered);
+        }
+        
+        function switchView(view) {
+            currentView = view;
+            const trashBtn = document.getElementById('trash-btn');
+            trashBtn.innerHTML = view === 'active' ? 
+                '<i data-lucide="trash-2" class="w-4 h-4 mr-2"></i> កំណត់ត្រាដែលបានលុប' : 
+                '<i data-lucide="check-circle" class="w-4 h-4 mr-2"></i> មើលកំណត់ត្រាសកម្ម';
+            trashBtn.onclick = view === 'active' ? () => switchView('trash') : () => switchView('active');
+            trashBtn.classList.toggle('bg-gray-100', view === 'active');
+            trashBtn.classList.toggle('bg-indigo-500', view === 'trash');
+            trashBtn.classList.toggle('text-white', view === 'trash');
+            trashBtn.classList.toggle('text-gray-600', view === 'active');
+            
+            document.getElementById('report-type').value = 'all';
+            document.getElementById('search-input').value = '';
+            filterRecords();
+            lucide.createIcons();
+        }
+
+        // --- RENDER LIST (Updated to simplify Type) ---
+        function renderExpenseList(data) {
+            const list = document.getElementById("expense-list");
+            const isTrashView = currentView === 'trash';
+            
+            if (data.length === 0) {
+                list.innerHTML = `<p class="text-center text-gray-500 py-10 text-xl border-dashed border-2 border-gray-300 rounded-lg m-4 bg-gray-50">
+                    ${isTrashView ? '🗑️ មិនមានទិន្នន័យក្នុងធុងសំរាមទេ។' : '✅ មិនមានកំណត់ត្រាចំណាយសកម្មទេ។'}
+                </p>`;
+                lucide.createIcons();
+                return;
+            }
+
+            list.innerHTML = data.map(x => {
+                // 🛑 Simplified logic since everything is an Expense (or deleted expense)
+                const isExpense = true; 
+                const isDeleted = x.Status === 'Deleted';
+                const badgeClass = isDeleted ? 'badge-deleted' : 'badge-expense';
+                const amountTextClass = isDeleted ? 'text-gray-500 line-through' : 'text-red-600';
+                const icon = 'arrow-down-left'; 
+                
+                const recordJson = JSON.stringify(x).split("'").join("\\'");
+                
+                const actionButtons = isDeleted ? `
+                    <button onclick="event.stopPropagation(); restoreExpense('${x.ID}')" class="text-green-600 hover:text-green-800 p-2 rounded-full hover:bg-green-50 transition" title="ទាញយកមកវិញ">
+                        <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+                    </button>
+                    <button onclick="event.stopPropagation(); permanentDeleteExpense('${x.ID}')" class="text-gray-600 hover:text-red-800 p-2 rounded-full hover:bg-red-50 transition" title="លុបជាអចិន្ត្រៃយ៍">
+                        <i data-lucide="x-circle" class="w-5 h-5"></i>
+                    </button>
+                ` : `
+                    <button onclick="event.stopPropagation(); editExpense('${x.ID}')" class="text-blue-600 hover:text-blue-800 p-2 rounded-full hover:bg-blue-50 transition" title="កែប្រែ">
+                        <i data-lucide="pencil" class="w-5 h-5"></i>
+                    </button>
+                    <button onclick="event.stopPropagation(); deleteExpense('${x.ID}')" class="text-red-600 hover:text-red-800 p-2 rounded-full hover:bg-red-50 transition" title="លុប">
+                        <i data-lucide="trash-2" class="w-5 h-5"></i>
+                    </button>
+                `;
+                
+                return `
+                    <div onclick="handleCardClick(${recordJson})" class="expense-item bg-white p-4 rounded-xl shadow-md border-l-4 ${isDeleted ? 'border-gray-500' : 'border-red-500'} flex justify-between items-center">
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center space-x-2 mb-1">
+                                <span class="text-xs font-medium px-2 py-0.5 rounded-full ${badgeClass}">ចំណាយ</span>
+                                <span class="text-sm text-gray-500">${x.Date}</span>
+                            </div>
+                            <p class="text-lg font-bold text-gray-800 truncate">${x.Category}</p>
+                            <p class="text-sm text-gray-600 truncate">${x.Description || 'មិនមានពិពណ៌នា'}</p>
+                        </div>
+
+                        <div class="text-right ml-4">
+                            <p class="text-xl font-extrabold ${amountTextClass} flex items-center justify-end whitespace-nowrap">
+                                ${!isDeleted ? `<i data-lucide="${icon}" class="w-5 h-5 mr-1"></i>` : ''}
+                                ${formatCurrency(parseFloat(x.Amount))}
+                            </p>
+                        </div>
+                        
+                        <div class="item-actions flex space-x-1 ml-4 flex-shrink-0">
+                            ${actionButtons}
+                        </div>
+                    </div>
+                `;
+            }).join("");
+            
+            lucide.createIcons();
+        }
+
+        // --- CRUD/DATA OPERATIONS (Replaced all alert/confirm with custom functions) ---
+        
+        async function handleFormSubmission(e, source) {
+             e.preventDefault();
+             const formElement = source === 'mobile' ? document.getElementById('mobile-expense-form') : document.getElementById('expense-form');
+             
+             const date = formElement.querySelector("#date").value;
+             const amount = formElement.querySelector("#amount").value;
+             const category = formElement.querySelector("#category").value;
+             const desc = formElement.querySelector("#desc").value;
+             
+             // 🛑 Enforce 'Expense'
+             const type = 'Expense'; 
+             
+             const submitBtn = formElement.querySelector("#submit-btn");
+
+             if (!date || !amount || !category) {
+                 showToast("⚠️ សូមបំពេញវាលសំខាន់ៗ (កាលបរិច្ឆេទ, ចំនួនប្រាក់, ប្រភេទ)។", 'warning');
+                 return;
+             }
+             
+             if(parseFloat(amount) <= 0) {
+                 showToast("⚠️ ចំនួនប្រាក់ត្រូវតែធំជាងសូន្យ។", 'warning');
+                 return;
+             }
+
+             const originalText = submitBtn.textContent;
+             submitBtn.innerHTML = editingID ? '<i data-lucide="loader-2" class="animate-spin w-5 h-5 mr-1"></i> កំពុងកែប្រែ...' : '<i data-lucide="loader-2" class="animate-spin w-5 h-5 mr-1"></i> កំពុងបន្ថែម...';
+             lucide.createIcons();
+             submitBtn.disabled = true;
+
+             const recordData = {
+                 Date: date,
+                 Amount: parseFloat(amount),
+                 Type: type,
+                 Category: category,
+                 Description: desc,
+                 ModifiedDate: new Date().toISOString()
+             };
+
+             let res;
+             if (editingID) {
+                 const url = `${SHEETDB_BASE_URL}/ID/${editingID}?sheet=${SHEET_EXPENSES}`;
+                 res = await fetch(url, {
+                     method: "PATCH",
+                     headers: { "Content-Type": "application/json" },
+                     body: JSON.stringify({ data: [recordData] })
+                 });
+                 if (res.ok) showToast("✅ កំណត់ត្រាត្រូវបានកែប្រែដោយជោគជ័យ!", 'success');
+             } else {
+                 const payload = {
+                     data: [{
+                         ID: Date.now(),
+                         Date: date,
+                         Amount: parseFloat(amount),
+                         Type: type,
+                         Category: category,
+                         Description: desc,
+                         UserEmail: user.Email,
+                         Status: "Active",
+                         ModifiedDate: new Date().toISOString()
+                     }]
+                 };
+                 res = await fetch(sheetUrl(SHEET_EXPENSES), {
+                     method: "POST",
+                     headers: { "Content-Type": "application/json" },
+                     body: JSON.stringify(payload)
+                 });
+                 if (res.ok) showToast("✅ កំណត់ត្រាត្រូវបានបន្ថែមដោយជោគជ័យ!", 'success');
+             }
+
+             if (res.ok) {
+                 if(source === 'mobile') closeFormModal();
+                 resetForm();
+                 loadAllData();
+             } else {
+                 showToast("❌ ប្រតិបត្តិការបរាជ័យ។", 'error');
+             }
+
+             submitBtn.textContent = originalText;
+             submitBtn.disabled = false;
+             lucide.createIcons();
+        }
+
+        
+        // Soft Delete/Restore/Permanent Delete functions (Using customConfirm)
+        async function deleteExpense(id) {
+            const confirmed = await customConfirm(
+                "បញ្ជាក់ការលុបបណ្ដោះអាសន្ន",
+                "កំណត់ត្រានេះនឹងត្រូវបានផ្លាស់ទៅកាន់ធុងសំរាម។ តើអ្នកប្រាកដទេ?",
+                "ផ្លាស់ទៅធុងសំរាម",
+                "delete"
+            );
+            
+            if (confirmed) {
+                 await updateStatus(id, "Deleted", "លុបបណ្ដោះអាសន្ន");
+            }
+        }
+        
+        async function restoreExpense(id) {
+            const confirmed = await customConfirm(
+                "បញ្ជាក់ការទាញយកមកវិញ",
+                "តើអ្នកប្រាកដថាចង់ទាញយកកំណត់ត្រានេះត្រឡប់មកវិញទេ?",
+                "ទាញយកមកវិញ",
+                "restore"
+            );
+            if (confirmed) {
+                 await updateStatus(id, "Active", "ទាញយកមកវិញ");
+            }
+        }
+        
+        async function permanentDeleteExpense(id) {
+             const confirmed = await customConfirm(
+                "⚠️ លុបជាអចិន្ត្រៃយ៍",
+                "កំណត់ត្រានេះនឹងត្រូវលុបចេញពីប្រព័ន្ធទាំងស្រុង ហើយមិនអាចយកមកវិញបានទេ។ តើអ្នកប្រាកដទេ?",
+                "លុបជាអចិន្ត្រៃយ៍",
+                "permanent_delete"
+            );
+            
+            if (!confirmed) return;
+             
+             const url = `${SHEETDB_BASE_URL}/ID/${id}?sheet=${SHEET_EXPENSES}`;
+             const res = await fetch(url, { method: "DELETE" });
+
+             if (res.ok) {
+                 showToast("🗑️ កំណត់ត្រាត្រូវបានលុបជាអចិន្ត្រៃយ៍ដោយជោគជ័យ។", 'success'); 
+                 loadAllData();
+             } else {
+                 showToast("❌ ការលុបបរាជ័យ។", 'error'); 
+             }
+        }
+        
+        async function updateStatus(id, newStatus, actionName) {
+            const url = `${SHEETDB_BASE_URL}/ID/${id}?sheet=${SHEET_EXPENSES}`;
+            const res = await fetch(url, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ data: [{ Status: newStatus, ModifiedDate: new Date().toISOString() }] })
+            });
+
+            if (res.ok) {
+                showToast(`✅ កំណត់ត្រាត្រូវបាន${actionName}ដោយជោគជ័យ។`, 'success'); 
+                loadAllData();
+            } else {
+                showToast("❌ ប្រតិបត្តិការបរាជ័យ។", 'error'); 
+            }
+        }
+        
+        // --- DATA EXPORT (Updated alerts) ---
+async function exportData(format) {
+    const dataToExport = filteredDataForReport; 
+    const reportName = document.getElementById('report-type').options[document.getElementById('report-type').selectedIndex].text;
+
+    if (dataToExport.length === 0) {
+          showToast("⚠️ មិនមានទិន្នន័យសម្រាប់ទាញយកទេ។ សូមជ្រើសរើសរបាយការណ៍ផ្សេងទៀត។", 'warning', 6000); 
+          return;
+    }
+    
+    // --- EXCEL EXPORT ---
+    if (format === 'excel') {
+        const structuredData = dataToExport.map(x => ({
+            'កាលបរិច្ឆេទ': x.Date,
+            'ប្រភេទ': 'ចំណាយ', // Hardcoded
+            'ចំនួនប្រាក់ (៛)': parseFloat(x.Amount) || 0,
+            'ប្រភេទចំណាយ': x.Category,
+            'ពិពណ៌នា': x.Description || '',
+            'ស្ថានភាព': x.Status
+        }));
+        
+        if (typeof XLSX === 'undefined') {
+            showToast("❌ កំហុស! SheetJS (XLSX) library មិនត្រូវបានផ្ទុកទេ។", 'error');
+            return;
+        }
+        
+        try {
+            const workbook = XLSX.utils.book_new();
+            const worksheet = XLSX.utils.json_to_sheet(structuredData);
+            XLSX.utils.book_append_sheet(workbook, worksheet, reportName);
+            XLSX.writeFile(workbook, `${reportName}_ExpenseReport_${new Date().toISOString().slice(0,10)}.xlsx`);
+            showToast(`✅ ឯកសារ Excel (.xlsx) ត្រូវបានទាញយកដោយជោគជ័យ!`, 'success');
+        } catch (error) {
+            console.error("Excel Export Failed:", error);
+            showToast("❌ ការទាញយកឯកសារ Excel បរាជ័យ។", 'error');
+        }
+
+    } 
+    // --- PDF EXPORT ---
+    else if (format === 'pdf') {
+        const { jsPDF } = window.jspdf;
+        const inputElement = document.getElementById('data-view-section'); 
+        
+        document.querySelectorAll('.item-actions').forEach(el => el.style.display = 'none');
+        
+        const pdfBtn = document.querySelector('button[onclick="exportData(\'pdf\')"]');
+        const originalPdfBtnContent = pdfBtn.innerHTML;
+        pdfBtn.innerHTML = '<i data-lucide="loader-2" class="animate-spin w-4 h-4 mr-1"></i> កំពុងរៀបចំ PDF...';
+        pdfBtn.disabled = true;
+
+        try {
+            const canvas = await html2canvas(inputElement, {
+                scale: 2, 
+                useCORS: true, 
+                windowWidth: inputElement.scrollWidth,
+                windowHeight: inputElement.scrollHeight
+            });
+
+            const imgData = canvas.toDataURL('image/jpeg', 1.0);
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = pdf.internal.pageSize.getHeight();
+            
+            const imgHeight = canvas.height * pdfWidth / canvas.width;
+            let heightLeft = imgHeight;
+            let position = 0;
+            
+            pdf.setFontSize(16);
+            pdf.text(`របាយការណ៍ចំណាយ: ${reportName}`, 10, 10);
+            pdf.setFontSize(10);
+            pdf.text(`កាលបរិច្ឆេទ: ${new Date().toLocaleDateString('km-KH')}`, 10, 17);
+            
+            position = 25; 
+            
+            while (heightLeft >= 0) {
+                if (position > 25) { 
+                    pdf.addPage();
+                }
+                
+                pdf.addImage(imgData, 'JPEG', 0, position - imgHeight, pdfWidth, imgHeight);
+                
+                heightLeft -= pdfHeight - 15; 
+                
+                position -= pdfHeight - 15; 
+            }
+
+            pdf.save(`${reportName}_Report_${new Date().toISOString().slice(0,10)}.pdf`);
+            showToast(`✅ ឯកសារ PDF ត្រូវបានទាញយកដោយជោគជ័យ!`, 'success');
+
+        } catch(error) {
+            console.error("PDF Export failed:", error);
+            showToast("❌ ការទាញយក PDF បរាជ័យ។", 'error');
+        } finally {
+            document.querySelectorAll('.item-actions').forEach(el => el.style.display = 'flex');
+            pdfBtn.innerHTML = originalPdfBtnContent; 
+            pdfBtn.disabled = false;
+            lucide.createIcons(); 
+        }
+    }
+}
+
+        // --- Initialization ---
+        async function loadAllData() {
+            document.getElementById("expense-list").innerHTML = '<p class="text-center text-gray-500 py-10 flex items-center justify-center"><i data-lucide="loader-2" class="animate-spin w-5 h-5 mr-3"></i> កំពុងទាញទិន្នន័យ...</p>';
+
+            try {
+                 const res = await fetch(sheetUrl(SHEET_EXPENSES));
+                 const data = await res.json();
+                 // 🛑 Filter the main data to ensure only 'Expense' or 'Deleted' records are processed
+                 allExpenses = data.filter(x => x.ID && (x.Type === 'Expense' || x.Status === 'Deleted')); 
+                 
+                 calculateSummary(allExpenses); 
+                 filterRecords(); 
+            } catch (error) {
+                 document.getElementById("expense-list").innerHTML = '<p class="text-center text-red-500 py-10 text-lg">❌ មានបញ្ហាក្នុងការទាញទិន្នន័យ។ សូមពិនិត្យមើល config.js និង Network</p>';
+                 console.error("Error loading expenses:", error);
+                showToast("❌ កំហុសក្នុងការផ្ទុកទិន្នន័យចំណាយ!", 'error'); 
+            }
+           
+        }
+        
+        // Execute setup and data loading
+        setupForms();
+        loadAllData(); 
+    </script>
+</body>
+</html>
