@@ -21,6 +21,13 @@ async function loginUser() {
   try {
     const res = await fetch(sheetUrl(SHEET_USERS));
     const json = await res.json();
+
+    if (!Array.isArray(json)) {
+      console.error("❌ Invalid response:", json);
+      alert("Server busy or limit reached. Try again later!");
+      return;
+    }
+
     const users = json.slice(1); // skip headers
     const user = users.find(u => u.Email === email);
 
@@ -93,13 +100,10 @@ async function loadModels() {
 // ================================
 // ✅ Get Face Descriptor
 // ================================
-async function getDescriptorFromImage(imgOrCanvas) {
+async function getDescriptorFromImage(imgOrCanvas, options = new faceapi.TinyFaceDetectorOptions({ inputSize: 512 })) {
   try {
     const detection = await faceapi
-      .detectSingleFace(
-        imgOrCanvas,
-        new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.3 })
-      )
+      .detectSingleFace(imgOrCanvas, options)
       .withFaceLandmarks()
       .withFaceDescriptor();
     return detection ? detection.descriptor : null;
@@ -178,7 +182,7 @@ captureBtn.addEventListener("click", async () => {
   snapshot.width = video.videoWidth;
   snapshot.height = video.videoHeight;
 
-  const ctx = snapshot.getContext("2d");
+  const ctx = snapshot.getContext("2d", { willReadFrequently: true });
 
   for (let i = 0; i < CAPTURE_COUNT_MOBILE; i++) {
     // Draw video frame on canvas with slight brightness/contrast boost
@@ -186,16 +190,15 @@ captureBtn.addEventListener("click", async () => {
     ctx.drawImage(video, 0, 0, snapshot.width, snapshot.height);
 
     const options = new faceapi.TinyFaceDetectorOptions({
-      inputSize: 224,      // mobile-friendly
-      scoreThreshold: 0.2  // easier detection
+      inputSize: 224,
+      scoreThreshold: 0.2,
     });
 
     const desc = await getDescriptorFromImage(snapshot, options);
     if (!desc) {
-      faceMsg.textContent =
-        "No face detected. Make sure lighting is good and move slightly.";
-      await new Promise(r => setTimeout(r, 200)); // wait a bit before retry
-      continue; // try next frame
+      faceMsg.textContent = "No face detected. Adjust lighting or move slightly.";
+      await new Promise(r => setTimeout(r, 200));
+      continue;
     }
 
     liveDescriptors.push(desc);
@@ -212,8 +215,14 @@ captureBtn.addEventListener("click", async () => {
   try {
     const res = await fetch(sheetUrl(SHEET_USERS));
     const json = await res.json();
-    const users = json.slice(1);
 
+    if (!Array.isArray(json)) {
+      console.error("❌ Invalid response (possibly 429):", json);
+      faceMsg.textContent = "Server busy or limit reached. Try again later.";
+      return;
+    }
+
+    const users = json.slice(1);
     let bestMatch = null;
     let bestDistance = Infinity;
 
@@ -224,13 +233,8 @@ captureBtn.addEventListener("click", async () => {
       img.src = `/faces/${u.FaceImageFile}`;
       await img.decode();
 
-      const options = new faceapi.TinyFaceDetectorOptions({
-        inputSize: 224,
-        scoreThreshold: 0.2
-      });
-
       const desc = await faceapi
-        .detectSingleFace(img, options)
+        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.2 }))
         .withFaceLandmarks()
         .withFaceDescriptor();
 
@@ -254,27 +258,10 @@ captureBtn.addEventListener("click", async () => {
       faceModal.style.display = "none";
       await updateLastLoginAndRedirect(bestMatch);
     } else {
-      faceMsg.textContent =
-        "❌ No matching face found. Make sure your face matches the stored image and you move slightly.";
+      faceMsg.textContent = "❌ No matching face found. Try again.";
     }
   } catch (err) {
     console.error("❌ Face login error:", err);
     faceMsg.textContent = "Error during face login.";
   }
 });
-
-// ================================
-// ✅ Updated getDescriptorFromImage to accept options
-// ================================
-async function getDescriptorFromImage(imgOrCanvas, options = new faceapi.TinyFaceDetectorOptions({inputSize:512})) {
-  try {
-    const detection = await faceapi
-      .detectSingleFace(imgOrCanvas, options)
-      .withFaceLandmarks()
-      .withFaceDescriptor();
-    return detection ? detection.descriptor : null;
-  } catch (err) {
-    console.error("❌ Error detecting face:", err);
-    return null;
-  }
-}
