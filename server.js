@@ -8,103 +8,151 @@ const cors = require("cors");
 const app = express();
 const PORT = 3000;
 
-// ✅ Your SheetDB base + tab
+// ---------------------------
+// SheetDB Config
+// ---------------------------
 const SHEETDB_BASE_URL = "https://sheetdb.io/api/v1/yypvlujsl3w1v";
 const SHEET_USERS = "Users";
 function sheetUrl(sheetName) {
-    return `${SHEETDB_BASE_URL}?sheet=${sheetName}`;
+  return `${SHEETDB_BASE_URL}?sheet=${sheetName}`;
 }
 
-app.use(cors()); // allow all origins (for development)
+// ---------------------------
+// GitHub Config
+// ---------------------------
+const GITHUB_OWNER = "cingcing12";
+const GITHUB_REPO = "dashboard_sytem";
+const GITHUB_FOLDER = "faces";
+require('dotenv').config();
+
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+
+// ---------------------------
+// Middleware
+// ---------------------------
+app.use(cors());
 app.use(express.json());
 
-// ================================
-// ⚙️ MULTER CONFIG (Private Folder)
-// ================================
+// ---------------------------
+// Multer Config (temporary local storage)
+// ---------------------------
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const dir = path.join(__dirname, "faces");
+    const dir = path.join(__dirname, "temp");
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },
   filename: (req, file, cb) => {
-    const email = req.body.email.replace(/[@.]/g, "_");
-    cb(null, `${email}.jpg`);
+    const emailSafe = req.body.email.replace(/[@.]/g, "_");
+    cb(null, `${emailSafe}.jpg`);
   }
 });
-
 const upload = multer({ storage });
 
-// ================================
-// 🧍 REGISTER USER + SAVE IMAGE
-// ================================
+// ---------------------------
+// GitHub Helper Functions
+// ---------------------------
+async function getFileSha(repoPath) {
+  const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${repoPath}`;
+  const res = await fetch(url, { headers: { Authorization: `token ${GITHUB_TOKEN}` } });
+  if (res.status === 200) {
+    const data = await res.json();
+    return data.sha;
+  }
+  return null;
+}
+
+async function uploadToGitHub(filePath, repoPath) {
+  const content = fs.readFileSync(filePath, { encoding: "base64" });
+  const sha = await getFileSha(repoPath);
+  const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${repoPath}`;
+
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: `token ${GITHUB_TOKEN}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      message: sha ? `Update face image ${repoPath}` : `Add face image ${repoPath}`,
+      content,
+      ...(sha && { sha })
+    })
+  });
+
+  const data = await res.json();
+  if (data.content && data.content.download_url) return data.content.download_url;
+  throw new Error(`GitHub upload failed: ${JSON.stringify(data)}`);
+}
+
+// ---------------------------
+// Register User Endpoint
+// ---------------------------
 app.post("/api/register", upload.single("faceImage"), async (req, res) => {
   const { email, password, role } = req.body;
+
   if (!email || !password || !req.file)
     return res.status(400).json({ error: "Missing required fields" });
 
   const safeEmail = email.replace(/[@.]/g, "_");
-  const faceFilename = `${safeEmail}.jpg`;
-
-  const userData = {
-  "Email": email,
-  "PasswordHash": password,
-  "Role": role || "Staff",
-  "IsBlocked": "FALSE",
-  "LastLogin": "",
-  "FaceImageFile": faceFilename
-};
+  const localPath = req.file.path;
+  const githubPath = `${GITHUB_FOLDER}/${safeEmail}.jpg`;
 
   try {
+    // Upload image to GitHub
+    const githubUrl = await uploadToGitHub(localPath, githubPath);
+    console.log("✅ Uploaded to GitHub:", githubUrl);
+
+    // Save user to SheetDB
+    const userData = {
+      Email: email,
+      PasswordHash: password,
+      Role: role || "Staff",
+      IsBlocked: "FALSE",
+      LastLogin: "",
+      FaceImageFile: `${safeEmail}.jpg`
+    };
+
     const sheetRes = await fetch(sheetUrl(SHEET_USERS), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ data: [userData] })
     });
 
-    const json = await sheetRes.json();
-    console.log("✅ Added user to SheetDB:", json);
+    const sheetJson = await sheetRes.json();
+    if (!sheetRes.ok) {
+      console.error("❌ SheetDB error:", sheetJson);
+      return res.status(500).json({ error: "Failed to save user to SheetDB", details: sheetJson });
+    }
 
-    res.json({
-      success: true,
-      message: "User and face image saved to Users tab",
-      faceFilename
-    });
+    // Remove local temp file
+    fs.unlinkSync(localPath);
+
+    res.json({ success: true, message: "User saved with face image on GitHub", githubUrl });
   } catch (err) {
-    console.error("❌ Error saving user:", err);
-    res.status(500).json({ error: "Failed to save user to SheetDB" });
+    console.error("❌ Error:", err);
+    if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
+    res.status(500).json({ error: "Failed to save user or upload image", details: err.message });
   }
 });
 
-// ================================
-// 📋 FETCH ALL USERS
-// ================================
+// ---------------------------
+// Fetch All Users
+// ---------------------------
 app.get("/api/users", async (req, res) => {
   try {
     const response = await fetch(sheetUrl(SHEET_USERS));
     const data = await response.json();
     res.json(data);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Failed to fetch users" });
   }
 });
 
-// ================================
-// 🔒 GET FACE IMAGE (Private Access)
-// ================================
-app.get("/api/face/:email", async (req, res) => {
-  const safeEmail = req.params.email.replace(/[@.]/g, "_");
-  const facePath = path.join(__dirname, "faces", `${safeEmail}.jpg`);
-
-  if (!fs.existsSync(facePath))
-    return res.status(404).json({ error: "Face image not found" });
-
-  res.sendFile(facePath);
+// ---------------------------
+// Start Server
+// ---------------------------
+app.listen(PORT, () => {
+  console.log(`✅ Server running at http://localhost:${PORT}`);
 });
-
-// ================================
-// 🚀 START SERVER
-// ================================
-app.listen(PORT, () =>
-  console.log(`✅ Server running at http://localhost:${PORT}`)
-);
