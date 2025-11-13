@@ -167,23 +167,44 @@ function stopCamera() {
 }
 
 // ================================
-// ✅ Capture & Match (Improved Security)
+// ✅ Capture & Match Optimized
 // ================================
 captureBtn.addEventListener("click", async () => {
   faceMsg.textContent = "Capturing your face...";
-
+  const CAPTURE_COUNT_MOBILE = 5; // more frames for mobile
   const liveDescriptors = [];
 
-  for (let i = 0; i < CAPTURE_COUNT; i++) {
-    const ctx = snapshot.getContext("2d", { willReadFrequently: true });
+  // Ensure canvas matches video
+  snapshot.width = video.videoWidth;
+  snapshot.height = video.videoHeight;
+
+  const ctx = snapshot.getContext("2d");
+
+  for (let i = 0; i < CAPTURE_COUNT_MOBILE; i++) {
+    // Draw video frame on canvas with slight brightness/contrast boost
+    ctx.filter = "brightness(1.2) contrast(1.2)";
     ctx.drawImage(video, 0, 0, snapshot.width, snapshot.height);
-    const desc = await getDescriptorFromImage(snapshot);
+
+    const options = new faceapi.TinyFaceDetectorOptions({
+      inputSize: 224,      // mobile-friendly
+      scoreThreshold: 0.2  // easier detection
+    });
+
+    const desc = await getDescriptorFromImage(snapshot, options);
     if (!desc) {
-      faceMsg.textContent = "No face detected. Make sure lighting is good and move slightly.";
-      return;
+      faceMsg.textContent =
+        "No face detected. Make sure lighting is good and move slightly.";
+      await new Promise(r => setTimeout(r, 200)); // wait a bit before retry
+      continue; // try next frame
     }
+
     liveDescriptors.push(desc);
     await new Promise(r => setTimeout(r, 300)); // wait 0.3s between frames
+  }
+
+  if (!liveDescriptors.length) {
+    faceMsg.textContent = "❌ Failed to capture any face. Try again.";
+    return;
   }
 
   faceMsg.textContent = "Matching with stored faces...";
@@ -197,27 +218,27 @@ captureBtn.addEventListener("click", async () => {
     let bestDistance = Infinity;
 
     for (const u of users) {
-      if (!u.FaceImageFile) {
-        console.warn("⚠️ Missing face image for", u.Email);
-        continue;
-      }
+      if (!u.FaceImageFile) continue;
 
       const img = new Image();
       img.src = `/faces/${u.FaceImageFile}`;
       await img.decode();
 
+      const options = new faceapi.TinyFaceDetectorOptions({
+        inputSize: 224,
+        scoreThreshold: 0.2
+      });
+
       const desc = await faceapi
-        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.3 }))
+        .detectSingleFace(img, options)
         .withFaceLandmarks()
         .withFaceDescriptor();
 
-      if (!desc) {
-        console.warn("❌ No face detected for", u.Email);
-        continue;
-      }
+      if (!desc) continue;
 
-      // Compute average distance across multiple captures
-      const avgDistance = liveDescriptors.reduce((sum, d) => sum + euclideanDistance(d, desc.descriptor), 0) / liveDescriptors.length;
+      const avgDistance =
+        liveDescriptors.reduce((sum, d) => sum + euclideanDistance(d, desc.descriptor), 0) /
+        liveDescriptors.length;
 
       if (avgDistance < bestDistance) {
         bestDistance = avgDistance;
@@ -233,11 +254,27 @@ captureBtn.addEventListener("click", async () => {
       faceModal.style.display = "none";
       await updateLastLoginAndRedirect(bestMatch);
     } else {
-      faceMsg.textContent = "❌ No matching face found. Make sure your face matches the stored image and you move slightly.";
+      faceMsg.textContent =
+        "❌ No matching face found. Make sure your face matches the stored image and you move slightly.";
     }
-
   } catch (err) {
     console.error("❌ Face login error:", err);
     faceMsg.textContent = "Error during face login.";
   }
 });
+
+// ================================
+// ✅ Updated getDescriptorFromImage to accept options
+// ================================
+async function getDescriptorFromImage(imgOrCanvas, options = new faceapi.TinyFaceDetectorOptions({inputSize:512})) {
+  try {
+    const detection = await faceapi
+      .detectSingleFace(imgOrCanvas, options)
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+    return detection ? detection.descriptor : null;
+  } catch (err) {
+    console.error("❌ Error detecting face:", err);
+    return null;
+  }
+}
