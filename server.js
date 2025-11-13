@@ -11,7 +11,7 @@ const PORT = 3000;
 // ---------------------------
 // SheetDB Config
 // ---------------------------
-const SHEETDB_BASE_URL = "https://sheetdb.io/api/v1/yypvlujsl3w1v";
+const SHEETDB_BASE_URL = "https://sheetdb.io/api/v1/1v70fvkbzklbs";
 const SHEET_USERS = "Users";
 function sheetUrl(sheetName) {
   return `${SHEETDB_BASE_URL}?sheet=${sheetName}`;
