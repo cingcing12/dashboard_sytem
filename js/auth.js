@@ -1,7 +1,7 @@
 // ================================
 // ✅ Configuration Variables
 // ================================
-const MODEL_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/weights"; // path to face-api.js models
+const MODEL_URL = "https://cingcing12.github.io/dashboard_sytem/models"; // path to face-api.js models
 let modelsLoaded = false;
 let streamRef = null;
 let currentFacing = "user"; // "user" = front, "environment" = back
